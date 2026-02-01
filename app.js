@@ -287,26 +287,63 @@ const initSheets = async () => {
 };
 initSheets();
 
+// ===== 新增驗證函數 =====
+function validateRegisterInput(username, password) {
+  // 驗證帳號
+  if (!username || username.trim().length < 3) {
+    return { valid: false, message: "帳號至少需要 3 個字元" };
+  }
+
+  // 驗證密碼長度
+  if (!password || password.length < 6 || password.length > 15) {
+    return { valid: false, message: "密碼長度需為 6~15 碼" };
+  }
+
+  // 驗證密碼英數混合
+  const hasLetter = /[a-zA-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  if (!hasLetter || !hasNumber) {
+    return { valid: false, message: "密碼必須英數混合（至少包含 1 個字母和 1 個數字）" };
+  }
+
+  return { valid: true };
+}
+
+function validateOvertimeHours(hours) {
+  const numHours = Number(hours);
+  if (isNaN(numHours) || numHours < 0 || numHours > 24) {
+    return false;
+  }
+  return true;
+}
+
 // Register
 app.post("/auth/register", async (req, res) => {
   try {
     const { username, password, display_name } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ message: "請提供帳號與密碼" });
+
+    // 驗證輸入
+    const validation = validateRegisterInput(username, password);
+    if (!validation.valid) {
+      return res.status(400).json({ message: validation.message });
+    }
+
+    if (!display_name || display_name.trim().length === 0) {
+      return res.status(400).json({ message: "顯示名稱不能為空" });
     }
 
     const users = await getAllRows(USERS_SHEET_RANGE);
-    const exists = users.some((u) => u.username === username);
+    const exists = users.some((u) => u.username === username.trim());
     if (exists) {
-      return res.status(409).json({ message: "帳號已重覆" });
+      return res.status(409).json({ message: "帳號名稱不可用" });
     }
 
     const sheets = getSheetsClient();
     const newUser = {
       id: `user-${Date.now()}`,
-      username,
+      username: username.trim(),
       password, // Note: In production, hash this!
-      display_name: display_name || username,
+      display_name: display_name.trim(),
     };
 
     await appendRow(sheets, USERS_SHEET_RANGE, USERS_COLUMNS, newUser);
@@ -402,6 +439,11 @@ app.post("/api/worklogs", requireAuth, async (req, res) => {
       return res.status(400).json({ message: "缺少必要欄位 (日期、時數、原因)" });
     }
 
+    // 驗證時數範圍
+    if (!validateOvertimeHours(duration_hours)) {
+      return res.status(400).json({ message: "加班時數需為 0~24 之間" });
+    }
+
     const payload = {
       id: `log-${Date.now()}`,
       user_id: req.user.id,
@@ -433,6 +475,11 @@ app.put("/api/worklogs/:id", requireAuth, async (req, res) => {
 
     if (found.rowData.user_id !== req.user.id) {
       return res.status(403).json({ message: "無權修改此紀錄" });
+    }
+
+    // 驗證時數範圍
+    if (req.body.duration_hours && !validateOvertimeHours(req.body.duration_hours)) {
+      return res.status(400).json({ message: "加班時數需為 0~24 之間" });
     }
 
     const payload = {
