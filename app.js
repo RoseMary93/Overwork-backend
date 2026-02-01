@@ -16,8 +16,8 @@ const SHEET_ID =
   process.env.GOOGLE_SHEET_ID || "1MeCb_ClcxP-H_e6vYid49l-ayRd0cF-TE_StXRO9dnM";
 
 // ===== Users Sheet Configuration =====
-const USERS_SHEET_RANGE = "'users'!A:D";
-const USERS_COLUMNS = ["id", "username", "password", "display_name"];
+const USERS_SHEET_RANGE = "'users'!A:E";
+const USERS_COLUMNS = ["id", "username", "password", "display_name", "email"];
 
 // ===== Worklogs Sheet Configuration =====
 const WORKLOGS_SHEET_RANGE = "'worklogs'!A:F";
@@ -288,7 +288,7 @@ const initSheets = async () => {
 initSheets();
 
 // ===== 新增驗證函數 =====
-function validateRegisterInput(username, password) {
+function validateRegisterInput(username, password, email) {
   // 驗證帳號
   if (!username || username.trim().length < 3) {
     return { valid: false, message: "帳號至少需要 3 個字元" };
@@ -306,6 +306,16 @@ function validateRegisterInput(username, password) {
     return { valid: false, message: "密碼必須英數混合（至少包含 1 個字母和 1 個數字）" };
   }
 
+  // 驗證信箱
+  if (!email || email.trim().length === 0) {
+    return { valid: false, message: "信箱不能為空" };
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email.trim())) {
+    return { valid: false, message: "請輸入有效的信箱格式" };
+  }
+
   return { valid: true };
 }
 
@@ -320,10 +330,10 @@ function validateOvertimeHours(hours) {
 // Register
 app.post("/auth/register", async (req, res) => {
   try {
-    const { username, password, display_name } = req.body;
+    const { username, password, display_name, email } = req.body;
 
     // 驗證輸入
-    const validation = validateRegisterInput(username, password);
+    const validation = validateRegisterInput(username, password, email);
     if (!validation.valid) {
       return res.status(400).json({ message: validation.message });
     }
@@ -333,9 +343,15 @@ app.post("/auth/register", async (req, res) => {
     }
 
     const users = await getAllRows(USERS_SHEET_RANGE);
-    const exists = users.some((u) => u.username === username.trim());
-    if (exists) {
+    const usernameExists = users.some((u) => u.username === username.trim());
+    if (usernameExists) {
       return res.status(409).json({ message: "帳號名稱不可用" });
+    }
+
+    // 檢查信箱是否已被註冊
+    const emailExists = users.some((u) => u.email === email.trim());
+    if (emailExists) {
+      return res.status(409).json({ message: "此信箱已被註冊" });
     }
 
     const sheets = getSheetsClient();
@@ -344,6 +360,7 @@ app.post("/auth/register", async (req, res) => {
       username: username.trim(),
       password, // Note: In production, hash this!
       display_name: display_name.trim(),
+      email: email.trim(),
     };
 
     await appendRow(sheets, USERS_SHEET_RANGE, USERS_COLUMNS, newUser);
@@ -352,6 +369,7 @@ app.post("/auth/register", async (req, res) => {
       id: newUser.id,
       username: newUser.username,
       display_name: newUser.display_name,
+      email: newUser.email,
     });
 
     res.status(201).json({
@@ -361,6 +379,7 @@ app.post("/auth/register", async (req, res) => {
         id: newUser.id,
         username: newUser.username,
         display_name: newUser.display_name,
+        email: newUser.email,
       },
     });
   } catch (error) {
